@@ -1,5 +1,6 @@
 package com.example.msaauth.controller;
 
+import com.example.msaauth.dto.LoginDto;
 import com.example.msaauth.dto.MemberRequestDto;
 import com.example.msaauth.dto.MemberResponseDto;
 import com.example.msaauth.dto.TokenDto;
@@ -9,13 +10,10 @@ import com.example.msaauth.exception.DuplicateEmailException;
 import com.example.msaauth.repository.MemberRepository;
 import com.example.msaauth.service.AuthService;
 import com.example.msaauth.util.CookieUtil;
-import com.mysql.cj.log.Log;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -30,7 +28,6 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
     private final AuthService authService;
     private final MemberRepository memberRepository;
-    private static final Logger logger = LoggerFactory.getLogger(AuthController.class);
 
     @PostMapping("/signup")
     public ResponseEntity<?> signup(@Valid @RequestBody MemberRequestDto memberRequestDto) {
@@ -43,16 +40,15 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody MemberRequestDto memberRequestDto, HttpServletResponse response) {
+    public ResponseEntity<?> login(@RequestBody LoginDto loginDto, HttpServletResponse response) {
         try {
-            TokenResponseDto tokenResponse = authService.login(memberRequestDto);
+            TokenResponseDto tokenResponse = authService.login(loginDto);
 
             HttpHeaders headers = new HttpHeaders();
             headers.add(HttpHeaders.AUTHORIZATION, "Bearer " + tokenResponse.getAccessToken());
             CookieUtil.addRefreshTokenToCookie(response, tokenResponse.getRefreshToken());
 
-            // 사용자 이메일과 권한 정보 생성
-            Member member = memberRepository.findByEmail(memberRequestDto.getEmail())
+            Member member = memberRepository.findByEmail(loginDto.getEmail())
                     .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
             MemberResponseDto userResponse = MemberResponseDto.of(member);
 
