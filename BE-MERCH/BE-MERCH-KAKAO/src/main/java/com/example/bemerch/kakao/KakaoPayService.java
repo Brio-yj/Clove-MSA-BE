@@ -8,10 +8,9 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.reactive.function.client.WebClient;
 
 import java.util.HashMap;
 import java.util.List;
@@ -24,9 +23,8 @@ import java.util.Map;
 public class KakaoPayService {
 
     private final KakaoPayProperties kakaoPayProperties;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final WebClient webClient = WebClient.builder().build();
     private PurchaseResponseDTO purchaseResponseDTO = new PurchaseResponseDTO();
-    private KakaoReadyResponse kakaoReadyResponse;
 
     @Value("${NAMESPACE}")
     private String NAMESPACE;
@@ -85,12 +83,14 @@ public class KakaoPayService {
 
         try {
             log.info("Sending request to KakaoPay API to prepare payment...");
-            HttpEntity<Map<String, Object>> requestEntity = new HttpEntity<>(parameters, getHeaders());
-            String apiUrl = "https://open-api.kakaopay.com/online/v1/payment/ready";
-
-            // API 요청 및 응답 수신
-            KakaoReadyResponse kakaoReadyResponse = restTemplate.postForObject(apiUrl, requestEntity, KakaoReadyResponse.class);
-            log.info("Payment ready response received: {}", kakaoReadyResponse);
+        KakaoReadyResponse kakaoReadyResponse = webClient.post()
+                .uri("https://open-api.kakaopay.com/online/v1/payment/ready")
+                .headers(h -> h.addAll(getHeaders()))
+                .bodyValue(parameters)
+                .retrieve()
+                .bodyToMono(KakaoReadyResponse.class)
+                .block();
+        log.info("Payment ready response received: {}", kakaoReadyResponse);
 
             // DTO 초기화 및 반환
             purchaseResponseDTO = new PurchaseResponseDTO(kakaoReadyResponse, email);
@@ -130,13 +130,14 @@ public class KakaoPayService {
         log.info("KakaoPay request param - CID: {}, TID: {}, Partner Order ID: {}, Partner User ID: {}",
                 parameters.get("cid"), parameters.get("tid"), partnerOrderId, partnerUserId);
 
-        HttpEntity<Map<String, String>> requestEntity = new HttpEntity<>(parameters, getHeaders());
-
         try {
-            KakaoApproveResponse approveResponse = restTemplate.postForObject(
-                    "https://open-api.kakaopay.com/online/v1/payment/approve",
-                    requestEntity,
-                    KakaoApproveResponse.class);
+            KakaoApproveResponse approveResponse = webClient.post()
+                    .uri("https://open-api.kakaopay.com/online/v1/payment/approve")
+                    .headers(h -> h.addAll(getHeaders()))
+                    .bodyValue(parameters)
+                    .retrieve()
+                    .bodyToMono(KakaoApproveResponse.class)
+                    .block();
 
             log.info("Payment approval completed successfully with response: {}", approveResponse);
             return approveResponse;
@@ -171,14 +172,15 @@ public class KakaoPayService {
 
 
         log.debug("Parameters for cancel request: {}", parameters);
-        HttpEntity<Map<String, Object>> requestEntity = new HttpEntity<>(parameters, getHeaders());
-
         try {
             log.info("Sending cancel request to Kakao Pay API");
-            KakaoCancelResponse cancelResponse = restTemplate.postForObject(
-                    "https://open-api.kakaopay.com/online/v1/payment/cancel",
-                    requestEntity,
-                    KakaoCancelResponse.class);
+            KakaoCancelResponse cancelResponse = webClient.post()
+                    .uri("https://open-api.kakaopay.com/online/v1/payment/cancel")
+                    .headers(h -> h.addAll(getHeaders()))
+                    .bodyValue(parameters)
+                    .retrieve()
+                    .bodyToMono(KakaoCancelResponse.class)
+                    .block();
             log.info("Kakao Pay cancel response received successfully");
             log.debug("Cancel response: {}", cancelResponse);
             return cancelResponse;
