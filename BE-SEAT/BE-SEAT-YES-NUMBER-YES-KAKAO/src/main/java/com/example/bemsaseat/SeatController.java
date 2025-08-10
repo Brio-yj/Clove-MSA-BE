@@ -120,7 +120,7 @@ public class SeatController {
             List<MinimalSeatDTO> minimalSeatDTOList = purchaseResponse.getBookedSeats();
             String jwtToken = purchaseResponse.getJwtToken();
 
-            seatService.sendPurchaseRequest(minimalSeatDTOList, jwtToken);
+            seatService.sendPurchaseRequest(minimalSeatDTOList);
 
             log.info("Sending list of MinimalSeatDTO as response: {}", minimalSeatDTOList);
 
