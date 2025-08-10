@@ -16,12 +16,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -39,7 +37,8 @@ public class SeatService {
 
     private final SeatRepository seatRepository;
     private final KakaoPayService kakaoPayService;
-    private final RestTemplate restTemplate;
+    private final KafkaTemplate<String, String> kafkaTemplate;
+    private final ObjectMapper objectMapper = new ObjectMapper();
     private static final Logger logger = LoggerFactory.getLogger(SeatService.class);
 
     @Value("${NAMESPACE}")
@@ -122,7 +121,7 @@ public class SeatService {
 
             // 티켓 서버에 예약 요청 전송
             log.info("Sending reservation requests to ticket server with seat information...");
-            sendPurchaseRequest(minimalSeatDTOList, jwtToken);
+            sendPurchaseRequest(minimalSeatDTOList);
 
             // 모든 예약된 좌석에 대해 예약 상태를 YES로 변경
             for (MinimalSeatDTO seatDTO : minimalSeatDTOList) {
@@ -150,45 +149,17 @@ public class SeatService {
         }
     }
 
-    public void sendPurchaseRequest(List<MinimalSeatDTO> minimalSeatDTOs, String jwtToken) {
-        log.debug("Starting sendPurchaseRequest with {} seats", minimalSeatDTOs.size());
-
-        minimalSeatDTOs.forEach(seatDTO ->
-                log.debug("Seat Info - Event: {}, Section: {}, Seat Number: {}, Price: {}, Event Time: {}",
-                        seatDTO.getEventName(), seatDTO.getSection(), seatDTO.getSeatNumber(), seatDTO.getPrice(), seatDTO.getEventTime())
-        );
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-
-        // 만약 jwtToken이 "Bearer "로 시작한다면 그 부분을 제거
-        if (jwtToken.startsWith("Bearer ")) {
-            jwtToken = jwtToken.substring(7);
-        }
-
-        headers.setBearerAuth(jwtToken);
-        // Log to see what headers are being set
-        log.info("Headers being sent: {}", headers);
-
-        HttpEntity<List<MinimalSeatDTO>> request = new HttpEntity<>(minimalSeatDTOs, headers);
-        log.info("Request body: {}", request.getBody());
-
-        String url= String.format("http://cse.ticketclove.com/%s/ticket/purchase", NAMESPACE);
-//        String url = "http://cse.ticketclove.com/default/ticket/purchase";
-//        String url = String.format("http://localhost:8083/ticket/purchase");
-        ResponseEntity<String> response = restTemplate.postForEntity(
-                url,
-                request,
-                String.class
-        );
-
-        if (response.getStatusCode().is2xxSuccessful()) {
+    public void sendPurchaseRequest(List<MinimalSeatDTO> minimalSeatDTOs) {
+        log.debug("Publishing payment-success event with {} seats", minimalSeatDTOs.size());
+        try {
+            String message = objectMapper.writeValueAsString(minimalSeatDTOs);
+            kafkaTemplate.send("payment-success", message);
             for (MinimalSeatDTO seatDTO : minimalSeatDTOs) {
                 String updateResult = confirmSeatPurchase(seatDTO);
                 log.info(updateResult);
             }
-        } else {
-            throw new RuntimeException("Failed to complete purchase request. Status: " + response.getStatusCode());
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to serialize seat data", e);
         }
     }
 

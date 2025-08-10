@@ -33,6 +33,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-logging:3.2.2'
     implementation 'mysql:mysql-connector-java:8.0.26'
+    implementation 'org.springframework.kafka:spring-kafka'
 
     //jwt
     implementation group: 'io.jsonwebtoken', name: 'jjwt-api', version: '0.11.5'

@@ -11,13 +11,13 @@ import com.example.bemsaticket.ticket.repository.TicketRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
+import jakarta.transaction.Transactional;
 
 @Slf4j
 @Service
@@ -26,8 +26,9 @@ public class TicketService {
 
     private final TokenProvider tokenProvider;
     private final TicketRepository ticketRepository;
-    private final RestTemplate restTemplate;
+    private final KafkaTemplate<String, String> kafkaTemplate;
     private final KakaoPayService kakaoPayService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${pay}")
     private Boolean pay;
@@ -65,6 +66,23 @@ public class TicketService {
         }
     }
 
+    @Transactional
+    public void saveTicketsFromEvent(List<MinimalSeatDTO> seatDTOs) {
+        for (MinimalSeatDTO seatDTO : seatDTOs) {
+            Ticket ticket = new Ticket();
+            ticket.setEventName(seatDTO.getEventName());
+            ticket.setSection(seatDTO.getSection());
+            ticket.setSeatNumber(seatDTO.getSeatNumber());
+            ticket.setPrice(seatDTO.getPrice());
+            ticket.setEventTime(seatDTO.getEventTime());
+            ticket.setPurchaseDate(seatDTO.getPurchaseDate());
+            ticket.setPurchaseTime(seatDTO.getPurchaseTime());
+            ticket.setTid(seatDTO.getTid());
+            ticket.setNAMESPACE(seatDTO.getNAMESPACE());
+            ticketRepository.save(ticket);
+        }
+    }
+
     public String cancelTicket(List<MinimalSeatDTO> seatDTOs, String authorizationHeader) {
         log.info("Starting ticket cancellation process for seats: {}", seatDTOs);
         try {
@@ -91,9 +109,6 @@ public class TicketService {
 
                 totalCancelAmount += seatDTO.getPrice();
 
-                log.info("Sending cancel request to seat service");
-                sendCancelRequestToSeatService(seatDTO, authorizationHeader);
-
                 log.info("Deleting ticket from repository");
                 ticketRepository.delete(existingTicket);
             }
@@ -113,32 +128,17 @@ public class TicketService {
                 log.info("Kakao Pay refund completed successfully");
             }
 
+            try {
+                String message = objectMapper.writeValueAsString(seatDTOs);
+                kafkaTemplate.send("payment-refund", message);
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException("Failed to serialize seat data", e);
+            }
+
             log.info("Ticket cancellation process completed successfully");
             return "티켓이 성공적으로 취소되었습니다.";
         } catch (Exception e) {
             log.error("Error occurred during ticket cancellation process", e);
-            throw e;
-        }
-    }
-
-    private void sendCancelRequestToSeatService(MinimalSeatDTO seatDTO, String authorizationHeader) {
-        log.info("Sending cancel request to seat service for seat: {}", seatDTO);
-        String NAMESPACE = seatDTO.getNAMESPACE();
-        log.info("NAMESPACE-----------------:{}",NAMESPACE);
-//        String url = "http://localhost:8082/seat/cancel";
-        String url = String.format("http://cse.ticketclove.com/%s/seat/cancel", NAMESPACE);
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("Authorization", authorizationHeader);
-
-        HttpEntity<MinimalSeatDTO> requestEntity = new HttpEntity<>(seatDTO, headers);
-
-        try {
-            restTemplate.put(url, requestEntity);
-            log.info("Cancel request sent successfully to seat service");
-        } catch (Exception e) {
-            log.error("Error occurred while sending cancel request to seat service", e);
             throw e;
         }
     }
